@@ -1,57 +1,59 @@
-from pinecone import Pinecone
-from langchain_openai import OpenAIEmbeddings
+import chromadb
+from chromadb.utils import embedding_functions
 from app.config import settings
 from typing import List, Dict
 import uuid
 
-class VectorStoreService:
+class VectorStore:
     def __init__(self):
-        self.pc = Pinecone(api_key=settings.PINECONE_API_KEY)
-        self.index = self.pc.Index(settings.PINECONE_INDEX_NAME)
-        self.embeddings = OpenAIEmbeddings(
-            openai_api_key=settings.OPENAI_API_KEY,
-            model=settings.EMBEDDING_MODEL
+        self.client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
+        self.embedding_fn = embedding_functions.OpenAIEmbeddingFunction(
+            api_key=settings.OPENAI_API_KEY,
+            model_name=settings.EMBEDDING_MODEL
+        )
+        self.collection = self.client.get_or_create_collection(
+            name="docuchat_collection",
+            embedding_function=self.embedding_fn
         )
 
-    async def upsert_documents(self, chunks: List[Dict], session_id: str):
-        vectors = []
-        for chunk in chunks:
-            # Generate embedding for the chunk text
-            embedding = self.embeddings.embed_query(chunk["text"])
+    def add_documents(self, chunks: List[Dict], session_id: str, file_id: str):
+        ids = [str(uuid.uuid4()) for _ in chunks]
+        texts = [c["text"] for c in chunks]
+        metadatas = []
+        for c in chunks:
+            meta = c["metadata"].copy()
+            meta["session_id"] = session_id
+            meta["file_id"] = file_id
+            metadatas.append(meta)
             
-            # Create a unique ID for the vector
-            vector_id = str(uuid.uuid4())
-            
-            # Prepare metadata including session_id for isolation
-            metadata = chunk["metadata"]
-            metadata["session_id"] = session_id
-            metadata["text_content"] = chunk["text"]
-            
-            vectors.append({
-                "id": vector_id,
-                "values": embedding,
-                "metadata": metadata
-            })
-            
-            # Batch upsert to Pinecone (limit 100 per call for stability)
-            if len(vectors) >= 100:
-                self.index.upsert(vectors=vectors)
-                vectors = []
-        
-        if vectors:
-            self.index.upsert(vectors=vectors)
+        self.collection.add(
+            ids=ids,
+            documents=texts,
+            metadatas=metadatas
+        )
 
-    async def query_similar(self, query: str, session_id: str, top_k: int = 5):
-        query_embedding = self.embeddings.embed_query(query)
-        
-        results = self.index.query(
-            vector=query_embedding,
-            top_k=top_k,
-            filter={"session_id": {"$eq": session_id}},
-            include_metadata=True
+    def query(self, query_text: str, session_id: str, k: int = 5):
+        results = self.collection.query(
+            query_texts=[query_text],
+            n_results=k,
+            where={"session_id": session_id}
         )
         
-        return results.matches
+        formatted_results = []
+        if results["documents"]:
+            for i in range(len(results["documents"][0])):
+                formatted_results.append({
+                    "text": results["documents"][0][i],
+                    "metadata": results["metadatas"][0][i]
+                })
+        return formatted_results
 
-    async def delete_session_docs(self, session_id: str):
-        self.index.delete(filter={"session_id": {"$eq": session_id}})
+    def delete_file_vectors(self, session_id: str, file_id: str):
+        self.collection.delete(
+            where={"$and": [{"session_id": session_id}, {"file_id": file_id}]}
+        )
+
+    def clear_session_vectors(self, session_id: str):
+        self.collection.delete(
+            where={"session_id": session_id}
+        )
