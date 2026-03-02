@@ -1,28 +1,21 @@
 from pydantic import BaseModel
 from typing import List, Optional
+from uuid import UUID
 
-class ChatMessage(BaseModel):
-    role: str
-    content: str
+class UploadResponse(BaseModel):
+    document_id: str
+    filename: str
+    status: str
+    page_count: int
+
+class Citation(BaseModel):
+    document_name: str
+    page: int
 
 class ChatRequest(BaseModel):
     session_id: str
     query: str
-    history: Optional[List[ChatMessage]] = []
-
-class Source(BaseModel):
-    file_name: str
-    page: int
 
 class ChatResponse(BaseModel):
     answer: str
-    sources: List[Source]
-
-class UploadResponse(BaseModel):
-    file_id: str
-    status: str
-    message: str
-
-class DocumentInfo(BaseModel):
-    file_name: str
-    file_id: str
+    citations: List[Citation]
