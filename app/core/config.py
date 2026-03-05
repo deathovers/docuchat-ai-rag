@@ -2,7 +2,8 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     OPENAI_API_KEY: str
-    CHROMA_PERSIST_DIRECTORY: str = "./chroma_db"
+    PINECONE_API_KEY: str
+    PINECONE_INDEX_NAME: str = "docuchat-ai"
     
     class Config:
         env_file = ".env"
