@@ -1,10 +1,8 @@
 fastapi
 uvicorn
-pydantic
 pydantic-settings
-python-multipart
 pymupdf
 langchain-text-splitters
-openai
 pinecone-client
-python-dotenv
+openai
+python-multipart
