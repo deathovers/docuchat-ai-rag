@@ -1,99 +1,97 @@
-# DocuChat AI - API Documentation
+# API Documentation: DocuChat AI
 
-The DocuChat AI backend is built with FastAPI and provides endpoints for document management and RAG-based querying.
+This document outlines the available API endpoints for the DocuChat AI service.
 
 ## Base URL
-`http://localhost:8000`
+`http://localhost:8000/v1`
 
 ---
 
 ## 1. Document Management
 
-### Upload PDF
+### Upload Documents
 `POST /upload`
 
-Uploads a PDF file, extracts text, generates embeddings, and stores them in the vector database.
+Uploads one or more PDF files to be processed and indexed for the current session.
 
 **Request:**
-- `multipart/form-data`
-- `file`: Binary PDF file.
-- `session_id`: String (Unique identifier for the user session).
+- **Content-Type:** `multipart/form-data`
+- **Body:**
+    - `files`: List of PDF files.
+    - `session_id`: A unique string identifying the user session.
 
-**Response:**
-```json
-{
-  "file_id": "uuid-string",
-  "filename": "contract.pdf",
-  "status": "processed"
-}
-```
-
-### List Files
-`GET /files/{session_id}`
-
-Returns a list of all files currently indexed for the given session.
-
-**Response:**
+**Response (200 OK):**
 ```json
 [
-  { "file_id": "uuid1", "filename": "manual.pdf" },
-  { "file_id": "uuid2", "filename": "report.pdf" }
+  {
+    "id": "uuid-v4",
+    "name": "annual_report.pdf",
+    "status": "processed",
+    "page_count": 15
+  }
 ]
 ```
 
-### Delete File
-`DELETE /files/{file_id}`
+### Delete Document
+`DELETE /documents/{doc_id}`
 
-Removes the document's vectors and metadata from the index.
+Removes a specific document and its associated vector embeddings.
+
+**Parameters:**
+- `doc_id` (path): The unique ID of the document.
+- `session_id` (query): The session ID associated with the document.
+
+**Response (204 No Content):**
+- Success.
 
 ---
 
-## 2. Chat & Query
+## 2. Chat Interface
 
 ### Query Documents
-`POST /query`
+`POST /chat`
 
-Performs a similarity search and generates a grounded response.
+Performs a RAG-based query against the documents uploaded in the current session.
 
 **Request Body:**
 ```json
 {
-  "question": "What is the termination clause?",
-  "session_id": "user-session-123"
-}
-```
-
-**Response Body:**
-```json
-{
-  "answer": "The contract may be terminated with 30 days notice [Contract.pdf - Page 12].",
-  "sources": [
-    { "file_name": "Contract.pdf", "page": 12 }
+  "session_id": "string",
+  "query": "What is the total revenue mentioned in the report?",
+  "history": [
+    { "role": "user", "content": "Hello" },
+    { "role": "assistant", "content": "Hi! How can I help with your docs?" }
   ]
 }
 ```
 
-### Clear Session
-`DELETE /session/{session_id}`
+**Response (200 OK):**
+```json
+{
+  "answer": "The total revenue for fiscal year 2023 was $5.2 billion.",
+  "citations": [
+    {
+      "document": "annual_report.pdf",
+      "page": 12
+    }
+  ]
+}
+```
 
-Deletes all vectors associated with the session namespace and clears chat history.
+**Error Responses:**
+- `400 Bad Request`: Missing session ID or invalid file format.
+- `500 Internal Server Error`: AI service failure or processing error.
 
 ---
 
 ## 3. Data Models
 
-### Vector Metadata
-Stored in Pinecone:
+### Message Object
+Used in the `history` array for the chat endpoint.
 ```json
 {
-  "text": "Chunk content...",
-  "source_name": "filename.pdf",
-  "page_number": 5,
-  "session_id": "uuid"
+  "role": "user" | "assistant",
+  "content": "string",
+  "timestamp": "ISO-8601"
 }
 ```
-
-## 4. Error Codes
-- `400 Bad Request`: Invalid file format or missing parameters.
-- `413 Payload Too Large`: File exceeds 10MB limit.
-- `500 Internal Server Error`: Issues with OpenAI or Pinecone connectivity.
