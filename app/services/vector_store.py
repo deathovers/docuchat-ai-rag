@@ -1,59 +1,52 @@
-import chromadb
-from chromadb.utils import embedding_functions
-from app.config import settings
-from typing import List, Dict
-import uuid
+from pinecone import Pinecone
+from app.core.config import settings
+import openai
 
-class VectorStore:
-    def __init__(self):
-        self.client = chromadb.PersistentClient(path=settings.CHROMA_DB_PATH)
-        self.embedding_fn = embedding_functions.OpenAIEmbeddingFunction(
-            api_key=settings.OPENAI_API_KEY,
-            model_name=settings.EMBEDDING_MODEL
-        )
-        self.collection = self.client.get_or_create_collection(
-            name="docuchat_collection",
-            embedding_function=self.embedding_fn
-        )
+pc = Pinecone(api_key=settings.PINECONE_API_KEY)
+index = pc.Index(settings.PINECONE_INDEX_NAME)
+client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
 
-    def add_documents(self, chunks: List[Dict], session_id: str, file_id: str):
-        ids = [str(uuid.uuid4()) for _ in chunks]
-        texts = [c["text"] for c in chunks]
-        metadatas = []
-        for c in chunks:
-            meta = c["metadata"].copy()
-            meta["session_id"] = session_id
-            meta["file_id"] = file_id
-            metadatas.append(meta)
-            
-        self.collection.add(
-            ids=ids,
-            documents=texts,
-            metadatas=metadatas
-        )
+def get_embedding(text: str):
+    response = client.embeddings.create(
+        input=text,
+        model="text-embedding-3-small"
+    )
+    return response.data[0].embedding
 
-    def query(self, query_text: str, session_id: str, k: int = 5):
-        results = self.collection.query(
-            query_texts=[query_text],
-            n_results=k,
-            where={"session_id": session_id}
-        )
+async def upsert_chunks(chunks: list):
+    vectors = []
+    for chunk in chunks:
+        embedding = get_embedding(chunk['text'])
+        vectors.append({
+            "id": chunk['id'],
+            "values": embedding,
+            "metadata": {
+                **chunk['metadata'],
+                "text": chunk['text']
+            }
+        })
+    
+    # Batch upsert
+    index.upsert(vectors=vectors)
+
+async def search_vectors(query: str, session_id: str, top_k: int = 5):
+    query_vector = get_embedding(query)
+    
+    results = index.query(
+        vector=query_vector,
+        top_k=top_k,
+        filter={"session_id": {"$eq": session_id}},
+        include_metadata=True
+    )
+    
+    formatted_results = []
+    for match in results['matches']:
+        formatted_results.append({
+            "text": match['metadata']['text'],
+            "metadata": match['metadata']
+        })
         
-        formatted_results = []
-        if results["documents"]:
-            for i in range(len(results["documents"][0])):
-                formatted_results.append({
-                    "text": results["documents"][0][i],
-                    "metadata": results["metadatas"][0][i]
-                })
-        return formatted_results
+    return formatted_results
 
-    def delete_file_vectors(self, session_id: str, file_id: str):
-        self.collection.delete(
-            where={"$and": [{"session_id": session_id}, {"file_id": file_id}]}
-        )
-
-    def clear_session_vectors(self, session_id: str):
-        self.collection.delete(
-            where={"session_id": session_id}
-        )
+async def delete_session_vectors(session_id: str):
+    index.delete(filter={"session_id": {"$eq": session_id}})
