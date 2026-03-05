@@ -1,29 +1,34 @@
 import fitz  # PyMuPDF
+from typing import List, Dict, Any
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-import uuid
 
-def process_pdf(file_content: bytes, filename: str, session_id: str):
-    doc = fitz.open(stream=file_content, filetype="pdf")
-    chunks = []
-    
-    text_splitter = RecursiveCharacterTextSplitter(
+def extract_text_from_pdf(file_bytes: bytes, filename: str) -> List[Dict[str, Any]]:
+    doc = fitz.open(stream=file_bytes, filetype="pdf")
+    pages_data = []
+    for page_num, page in enumerate(doc):
+        text = page.get_text()
+        pages_data.append({
+            "text": text,
+            "page_number": page_num + 1,
+            "filename": filename
+        })
+    return pages_data
+
+def chunk_documents(pages_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    splitter = RecursiveCharacterTextSplitter(
         chunk_size=1000,
         chunk_overlap=200
     )
     
-    for page_num, page in enumerate(doc):
-        text = page.get_text()
-        page_chunks = text_splitter.split_text(text)
-        
-        for chunk_text in page_chunks:
+    chunks = []
+    for page in pages_data:
+        texts = splitter.split_text(page["text"])
+        for text in texts:
             chunks.append({
-                "id": str(uuid.uuid4()),
-                "text": chunk_text,
+                "text": text,
                 "metadata": {
-                    "session_id": session_id,
-                    "filename": filename,
-                    "page_number": page_num + 1
+                    "filename": page["filename"],
+                    "page_number": page["page_number"]
                 }
             })
-            
-    return chunks, len(doc)
+    return chunks
