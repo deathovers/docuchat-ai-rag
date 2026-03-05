@@ -1,64 +1,62 @@
 # DocuChat AI
 
-DocuChat AI is a high-performance, multi-document Retrieval-Augmented Generation (RAG) system. It allows users to upload multiple PDF documents and engage in a context-aware chat where every response is grounded in the provided text and includes precise page-level citations.
+DocuChat AI is a high-performance Retrieval-Augmented Generation (RAG) platform designed to allow users to interact with multiple PDF documents through natural language. The system prioritizes accuracy, strict grounding in provided context, and session-based data isolation.
 
 ## 🚀 Features
 
-- **Multi-Document Context**: Query across multiple PDFs simultaneously.
-- **Strict Grounding**: The AI is constrained to answer only based on uploaded content to prevent hallucinations.
-- **Page-Level Citations**: Responses include references in the format `[Filename - Page X]`.
-- **Session Isolation**: Uses Pinecone namespaces to ensure data from one user session never leaks into another.
-- **Streaming Responses**: Real-time feedback for a smooth user experience.
+- **Multi-PDF Support:** Upload and query across up to 10 PDF documents simultaneously.
+- **High-Fidelity Extraction:** Uses `PyMuPDF` to maintain page-level metadata for precise citations.
+- **Contextual Retrieval:** Implements recursive character text splitting and vector search for relevant context matching.
+- **Grounded Generation:** Custom-engineered prompts ensure the AI only answers based on uploaded content, preventing hallucinations.
+- **Session Isolation:** Uses metadata filtering in the vector database to ensure users only access their own uploaded data.
+- **Citations:** Every answer includes specific document names and page numbers.
 
 ## 🏗️ Architecture
 
-The system follows a modern RAG pipeline:
-1. **Ingestion**: PDFs are processed using `PyMuPDF`.
-2. **Chunking**: Text is split using `RecursiveCharacterTextSplitter` (1000 chars, 200 overlap).
-3. **Vector Storage**: Embeddings (`text-embedding-3-small`) are stored in Pinecone with session-specific namespaces.
-4. **Retrieval**: Similarity search fetches the top 5 relevant chunks.
-5. **Generation**: OpenAI GPT-4o generates the final answer based strictly on the retrieved context.
+The system follows a standard RAG pipeline:
+1. **Ingestion:** PDFs are parsed -> Split into chunks (1000 chars, 200 overlap) -> Embedded using OpenAI `text-embedding-3-small`.
+2. **Storage:** Vectors are stored in a Vector Database (e.g., Pinecone) with `session_id` metadata.
+3. **Retrieval:** User queries are embedded -> Top-k relevant chunks are retrieved using `session_id` filters.
+4. **Generation:** OpenAI GPT model generates a response using the retrieved chunks as the sole source of truth.
 
-## 🛠️ Tech Stack
-
-- **Frontend**: Next.js, Tailwind CSS, Lucide React.
-- **Backend**: FastAPI (Python), LangChain.
-- **Database**: Pinecone (Vector DB).
-- **LLM**: OpenAI GPT-4o.
-
-## ⚙️ Installation
+## 🛠️ Installation
 
 ### Prerequisites
 - Python 3.9+
-- Node.js 18+
 - OpenAI API Key
-- Pinecone API Key
+- Pinecone API Key (or supported Vector DB)
 
-### Backend Setup
-1. Navigate to the `backend` directory.
-2. Create a virtual environment: `python -m venv venv`.
-3. Activate it: `source venv/bin/activate` (or `venv\Scripts\activate` on Windows).
-4. Install dependencies: `pip install -r requirements.txt`.
-5. Create a `.env` file:
-   ```env
-   OPENAI_API_KEY=your_key
-   PINECONE_API_KEY=your_key
-   PINECONE_ENVIRONMENT=your_env
-   PINECONE_INDEX_NAME=docuchat
+### Setup
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your-repo/docuchat-ai.git
+   cd docuchat-ai
    ```
-6. Run the server: `uvicorn main:app --reload`.
 
-### Frontend Setup
-1. Navigate to the `frontend` directory.
-2. Install dependencies: `npm install`.
-3. Create a `.env.local` file:
-   ```env
-   NEXT_PUBLIC_API_URL=http://localhost:8000
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
    ```
-4. Run the development server: `npm run dev`.
 
-## 📝 Usage
-1. Open the browser to `http://localhost:3000`.
-2. Upload one or more PDF files (Max 10MB per file).
-3. Wait for the "Processing Complete" notification.
-4. Start asking questions about your documents!
+3. Configure environment variables (`.env`):
+   ```env
+   OPENAI_API_KEY=your_openai_key
+   PINECONE_API_KEY=your_pinecone_key
+   PINECONE_ENVIRONMENT=your_environment
+   LLM_MODEL=gpt-4-turbo-preview
+   ```
+
+4. Run the application:
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+
+## 📖 Usage
+1. **Upload:** Send your PDFs to the `/v1/upload` endpoint with a unique `session_id`.
+2. **Chat:** Post queries to `/v1/chat` including your `session_id` and any previous message history.
+3. **Cleanup:** Sessions are volatile; refreshing or terminating the session will trigger data cleanup.
+
+## ⚠️ Constraints
+- No OCR support (text-based PDFs only).
+- Maximum of 10 PDFs per session.
+- Responses are strictly limited to the provided document context.
