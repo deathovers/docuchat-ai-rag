@@ -1,65 +1,106 @@
-from openai import OpenAI
+import asyncio
+import logging
+from typing import List, Dict, Any
+from openai import AsyncOpenAI, RateLimitError, APITimeoutError
 from pinecone import Pinecone
 from app.core.config import settings
 
+logger = logging.getLogger(__name__)
+
+# Initialize Clients
 pc = Pinecone(api_key=settings.PINECONE_API_KEY)
 index = pc.Index(settings.PINECONE_INDEX_NAME)
-client = OpenAI(api_key=settings.OPENAI_API_KEY)
+aclient = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
-SYSTEM_PROMPT = """You are a helpful assistant. Answer questions ONLY based on the provided context. 
-If the answer is not in the context, say 'The answer was not found in the uploaded documents.' 
-Do not use outside knowledge.
+async def get_chat_response(session_id: str, query: str, history: List[Dict[str, str]]) -> Dict[str, Any]:
+    \"\"\"
+    Retrieves relevant document chunks and generates a cited response using RAG.
+    \"\"\"
+    try:
+        # 1. Generate Query Embedding (Async)
+        embed_res = await aclient.embeddings.create(
+            input=query,
+            model="text-embedding-3-small"
+        )
+        query_vector = embed_res.data[0].embedding
 
-Context:
-{context}
+        # 2. Search Pinecone (Offload blocking call to thread)
+        # Pinecone's standard SDK is synchronous; we use asyncio.to_thread to keep the loop free.
+        search_res = await asyncio.to_thread(
+            index.query,
+            vector=query_vector,
+            top_k=5,
+            filter={"session_id": {"$eq": session_id}},
+            include_metadata=True
+        )
 
-Question: {query}
-"""
+        # 3. Process Context and Citations
+        context_parts = []
+        citations = []
+        seen_citations = set()
 
-async def get_chat_response(query: str, session_id: str):
-    # 1. Embed query
-    embedding_res = client.embeddings.create(
-        input=query,
-        model="text-embedding-3-small"
-    )
-    query_embedding = embedding_res.data[0].embedding
+        for match in search_res.get("matches", []):
+            meta = match.get("metadata", {})
+            text = meta.get("text", "")
+            file_name = meta.get("file_name", "Unknown")
+            
+            # Safe page conversion to handle non-numeric or missing data
+            try:
+                page_raw = meta.get("page", 0)
+                page = int(float(page_raw))
+            except (ValueError, TypeError):
+                page = 0
 
-    # 2. Search Pinecone
-    results = index.query(
-        vector=query_embedding,
-        top_k=5,
-        filter={"session_id": {"$eq": session_id}},
-        include_metadata=True
-    )
+            context_parts.append(f"Source: {file_name}, Page: {page}\nContent: {text}")
+            
+            cite_key = f"{file_name}-{page}"
+            if cite_key not in seen_citations:
+                citations.append({"file_name": file_name, "page": page})
+                seen_citations.add(cite_key)
 
-    # 3. Format context and citations
-    context_parts = []
-    citations = []
-    seen_citations = set()
+        if not context_parts:
+            return {
+                "answer": "The answer was not found in the uploaded documents.",
+                "citations": []
+            }
 
-    for res in results["matches"]:
-        meta = res["metadata"]
-        context_parts.append(f"Source: {meta['file_name']} (Page {meta['page']})\nContent: {meta['text']}")
+        context_str = "\n\n---\n\n".join(context_parts)
+
+        # 4. Construct Prompt
+        system_prompt = (
+            "You are a helpful assistant. Answer questions ONLY based on the provided context. "
+            "If the answer is not in the context, say 'The answer was not found in the uploaded documents.' "
+            "Do not use outside knowledge."
+        )
         
-        cit_key = f"{meta['file_name']}_{meta['page']}"
-        if cit_key not in seen_citations:
-            citations.append({
-                "file_name": meta["file_name"],
-                "page": int(meta["page"])
-            })
-            seen_citations.add(cit_key)
+        messages = [{"role": "system", "content": system_prompt}]
+        # Include a window of history for conversational context
+        messages.extend(history[-5:]) 
+        messages.append({"role": "user", "content": f"Context:\n{context_str}\n\nQuestion: {query}"})
 
-    # 4. LLM Call
-    context_str = "\n\n".join(context_parts)
-    prompt = SYSTEM_PROMPT.format(context=context_str, query=query)
+        # 5. LLM Inference (Async)
+        response = await aclient.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages,
+            temperature=0.0
+        )
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.0
-    )
+        answer = response.choices[0].message.content
 
-    return {
-        "answer": response.choices[0].message.content,
-        "citations": citations
-    }
+        # Only return citations if the model found an answer
+        final_citations = citations if "The answer was not found" not in answer else []
+
+        return {
+            "answer": answer,
+            "citations": final_citations
+        }
+
+    except RateLimitError:
+        logger.error("OpenAI Rate Limit Exceeded")
+        return {"answer": "I'm receiving too many requests right now. Please try again in a moment.", "citations": []}
+    except APITimeoutError:
+        logger.error("OpenAI API Timeout")
+        return {"answer": "The request timed out. Please try again.", "citations": []}
+    except Exception as e:
+        logger.error(f"Error in retrieval service: {str(e)}", exc_info=True)
+        return {"answer": "An internal error occurred while processing your request.", "citations": []}
