@@ -1,62 +1,57 @@
 # DocuChat AI
 
-DocuChat AI is a high-performance Retrieval-Augmented Generation (RAG) platform designed to allow users to interact with multiple PDF documents through natural language. The system prioritizes accuracy, strict grounding in provided context, and session-based data isolation.
+DocuChat AI is a high-performance Retrieval-Augmented Generation (RAG) application that allows users to upload multiple PDF documents and interact with them using natural language. The system ensures data privacy through session-based isolation and provides verifiable answers with direct citations to source files and page numbers.
 
 ## 🚀 Features
 
-- **Multi-PDF Support:** Upload and query across up to 10 PDF documents simultaneously.
-- **High-Fidelity Extraction:** Uses `PyMuPDF` to maintain page-level metadata for precise citations.
-- **Contextual Retrieval:** Implements recursive character text splitting and vector search for relevant context matching.
-- **Grounded Generation:** Custom-engineered prompts ensure the AI only answers based on uploaded content, preventing hallucinations.
-- **Session Isolation:** Uses metadata filtering in the vector database to ensure users only access their own uploaded data.
-- **Citations:** Every answer includes specific document names and page numbers.
+- **Multi-PDF Support**: Upload and query multiple documents simultaneously (up to 10 per session).
+- **Session Isolation**: Uses metadata filtering in Pinecone to ensure users only access their own uploaded data.
+- **Cited Responses**: Every answer includes the source filename and page number for transparency.
+- **Strict Grounding**: The AI is configured to answer only based on provided documents, preventing hallucinations.
+- **Asynchronous Pipeline**: Built with FastAPI and AsyncOpenAI for low-latency performance.
 
 ## 🏗️ Architecture
 
 The system follows a standard RAG pipeline:
-1. **Ingestion:** PDFs are parsed -> Split into chunks (1000 chars, 200 overlap) -> Embedded using OpenAI `text-embedding-3-small`.
-2. **Storage:** Vectors are stored in a Vector Database (e.g., Pinecone) with `session_id` metadata.
-3. **Retrieval:** User queries are embedded -> Top-k relevant chunks are retrieved using `session_id` filters.
-4. **Generation:** OpenAI GPT model generates a response using the retrieved chunks as the sole source of truth.
 
-## 🛠️ Installation
+1.  **Ingestion**: PDFs are parsed (PyMuPDF), chunked (Recursive Character Splitting), embedded (OpenAI `text-embedding-3-small`), and stored in Pinecone.
+2.  **Retrieval**: User queries are vectorized and used to perform a similarity search against the session-specific vectors.
+3.  **Generation**: Top-k relevant chunks are fed into GPT-4o-mini with a strict system prompt to generate the final cited response.
+
+## 🛠️ Tech Stack
+
+- **Backend**: Python, FastAPI
+- **Frontend**: React (SPA)
+- **LLM**: OpenAI GPT-4o-mini
+- **Embeddings**: OpenAI text-embedding-3-small
+- **Vector Database**: Pinecone
+- **PDF Processing**: PyMuPDF / pdfplumber
+
+## ⚙️ Installation & Setup
 
 ### Prerequisites
 - Python 3.9+
+- Node.js & npm
 - OpenAI API Key
-- Pinecone API Key (or supported Vector DB)
+- Pinecone API Key and Index
 
-### Setup
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-repo/docuchat-ai.git
-   cd docuchat-ai
-   ```
-
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Configure environment variables (`.env`):
+### Backend Setup
+1. Clone the repository.
+2. Navigate to the backend directory: `cd backend`.
+3. Create a `.env` file:
    ```env
    OPENAI_API_KEY=your_openai_key
    PINECONE_API_KEY=your_pinecone_key
-   PINECONE_ENVIRONMENT=your_environment
-   LLM_MODEL=gpt-4-turbo-preview
+   PINECONE_INDEX_NAME=your_index_name
    ```
+4. Install dependencies: `pip install -r requirements.txt`.
+5. Run the server: `uvicorn app.main:app --reload`.
 
-4. Run the application:
-   ```bash
-   uvicorn app.main:app --reload
-   ```
+### Frontend Setup
+1. Navigate to the frontend directory: `cd frontend`.
+2. Install dependencies: `npm install`.
+3. Start the development server: `npm start`.
 
-## 📖 Usage
-1. **Upload:** Send your PDFs to the `/v1/upload` endpoint with a unique `session_id`.
-2. **Chat:** Post queries to `/v1/chat` including your `session_id` and any previous message history.
-3. **Cleanup:** Sessions are volatile; refreshing or terminating the session will trigger data cleanup.
-
-## ⚠️ Constraints
-- No OCR support (text-based PDFs only).
-- Maximum of 10 PDFs per session.
-- Responses are strictly limited to the provided document context.
+## 🔒 Security & Privacy
+- **Statelessness**: Data is partitioned by `session_id`.
+- **TTL**: Vectors and temporary files are intended to be purged after session expiry (MVP uses ephemeral session logic).
