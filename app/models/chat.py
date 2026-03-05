@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Dict, Optional
+from typing import List, Optional
 
 class Message(BaseModel):
     role: str
@@ -8,7 +8,7 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     session_id: str
     query: str
-    history: List[Message]
+    history: List[Message] = []
 
 class Citation(BaseModel):
     document: str
