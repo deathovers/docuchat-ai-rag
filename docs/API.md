@@ -1,97 +1,85 @@
-# API Documentation: DocuChat AI
+# API Documentation - DocuChat AI v1
 
-This document outlines the available API endpoints for the DocuChat AI service.
+The DocuChat AI API provides endpoints for document management and RAG-based chat interactions. All requests must include a `Session-ID` to ensure data isolation.
 
 ## Base URL
 `http://localhost:8000/v1`
 
+## Headers
+| Header | Description | Required |
+| :--- | :--- | :--- |
+| `Session-ID` | A unique UUID representing the user's current session. | Yes |
+
 ---
 
-## 1. Document Management
+## Endpoints
 
-### Upload Documents
-`POST /upload`
+### 1. Upload Documents
+Uploads one or more PDF files and triggers the ingestion pipeline.
 
-Uploads one or more PDF files to be processed and indexed for the current session.
-
-**Request:**
-- **Content-Type:** `multipart/form-data`
-- **Body:**
+- **URL**: `/upload`
+- **Method**: `POST`
+- **Content-Type**: `multipart/form-data`
+- **Payload**: 
     - `files`: List of PDF files.
-    - `session_id`: A unique string identifying the user session.
+- **Response**: `200 OK`
+```json
+{
+  "message": "Files uploaded and processed successfully",
+  "session_id": "uuid-string",
+  "files": ["contract.pdf", "manual.pdf"]
+}
+```
 
-**Response (200 OK):**
+### 2. List Files
+Retrieves a list of all documents uploaded in the current session.
+
+- **URL**: `/files`
+- **Method**: `GET`
+- **Response**: `200 OK`
 ```json
 [
   {
-    "id": "uuid-v4",
-    "name": "annual_report.pdf",
-    "status": "processed",
-    "page_count": 15
+    "document_id": "uuid",
+    "file_name": "contract.pdf",
+    "upload_timestamp": "2023-10-27T10:00:00Z"
   }
 ]
 ```
 
-### Delete Document
-`DELETE /documents/{doc_id}`
+### 3. Delete File
+Removes a specific document and its associated vectors from the session.
 
-Removes a specific document and its associated vector embeddings.
+- **URL**: `/files/{file_id}`
+- **Method**: `DELETE`
+- **Response**: `204 No Content`
 
-**Parameters:**
-- `doc_id` (path): The unique ID of the document.
-- `session_id` (query): The session ID associated with the document.
+### 4. Chat
+Sends a query to the RAG engine and receives a cited response.
 
-**Response (204 No Content):**
-- Success.
-
----
-
-## 2. Chat Interface
-
-### Query Documents
-`POST /chat`
-
-Performs a RAG-based query against the documents uploaded in the current session.
-
-**Request Body:**
+- **URL**: `/chat`
+- **Method**: `POST`
+- **Payload**:
 ```json
 {
-  "session_id": "string",
-  "query": "What is the total revenue mentioned in the report?",
+  "query": "What is the termination clause?",
   "history": [
-    { "role": "user", "content": "Hello" },
-    { "role": "assistant", "content": "Hi! How can I help with your docs?" }
+    {"role": "user", "content": "Hello"},
+    {"role": "assistant", "content": "Hi, how can I help with your docs?"}
   ]
 }
 ```
-
-**Response (200 OK):**
+- **Response**: `200 OK`
 ```json
 {
-  "answer": "The total revenue for fiscal year 2023 was $5.2 billion.",
+  "answer": "The contract may be terminated with 30 days notice.",
   "citations": [
-    {
-      "document": "annual_report.pdf",
-      "page": 12
-    }
+    { "file_name": "Contract_v2.pdf", "page": 12 }
   ]
 }
 ```
 
-**Error Responses:**
-- `400 Bad Request`: Missing session ID or invalid file format.
-- `500 Internal Server Error`: AI service failure or processing error.
-
----
-
-## 3. Data Models
-
-### Message Object
-Used in the `history` array for the chat endpoint.
-```json
-{
-  "role": "user" | "assistant",
-  "content": "string",
-  "timestamp": "ISO-8601"
-}
-```
+## Error Handling
+- `400 Bad Request`: Invalid file format or missing parameters.
+- `429 Too Many Requests`: OpenAI Rate limits exceeded.
+- `500 Internal Server Error`: Processing or connectivity failure.
