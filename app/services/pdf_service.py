@@ -1,34 +1,33 @@
 import fitz  # PyMuPDF
-from typing import List, Dict, Any
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from typing import List, Dict, Any
 
-def extract_text_from_pdf(file_bytes: bytes, filename: str) -> List[Dict[str, Any]]:
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
-    pages_data = []
-    for page_num, page in enumerate(doc):
-        text = page.get_text()
-        pages_data.append({
-            "text": text,
-            "page_number": page_num + 1,
-            "filename": filename
-        })
-    return pages_data
+class PDFService:
+    def __init__(self):
+        self.splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200,
+            length_function=len,
+        )
 
-def chunk_documents(pages_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200
-    )
-    
-    chunks = []
-    for page in pages_data:
-        texts = splitter.split_text(page["text"])
-        for text in texts:
-            chunks.append({
-                "text": text,
-                "metadata": {
-                    "filename": page["filename"],
-                    "page_number": page["page_number"]
-                }
-            })
-    return chunks
+    def process_pdf(self, file_bytes: bytes, filename: str, session_id: str) -> List[Dict[str, Any]]:
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        chunks = []
+        
+        page_count = len(doc)
+        for page_num, page in enumerate(doc):
+            text = page.get_text()
+            if not text.strip():
+                continue
+                
+            page_chunks = self.splitter.split_text(text)
+            for chunk in page_chunks:
+                chunks.append({
+                    "text": chunk,
+                    "metadata": {
+                        "session_id": session_id,
+                        "filename": filename,
+                        "page_number": page_num + 1
+                    }
+                })
+        return chunks, page_count
